@@ -1,8 +1,7 @@
-# # query.py
+# # query.py - FIXED VERSION
 # import os
 # import json
 # import boto3
-# from embed import get_embedding, client
 # from dotenv import load_dotenv
 
 # # ----------------------
@@ -17,77 +16,74 @@
 
 # bedrock_client = boto3.client("bedrock-runtime", region_name=AWS_REGION)
 
-# # ----------------------
-# # Chroma collection
-# # ----------------------
-# collection = client.get_collection("pdf_docs")
-
-
 # def query_rag_system(query: str, top_k: int = 5) -> str:
 #     """
-#     Query the RAG system and get answer from Bedrock LLM (Claude).
-#     Returns the LLM-generated answer.
+#     Query the RAG system with thread-safe client handling.
 #     """
-#     # ----------------------
-#     # 1️⃣ Generate embedding for the query
-#     # ----------------------
-#     query_emb = get_embedding(query) # ensure it's a list of floats
-
-#     # ----------------------
-#     # 2️⃣ Retrieve top-k relevant documents from Chroma
-#     # ----------------------
-#     results = collection.query(
-#         query_embeddings=[query_emb],
-#         n_results=top_k,
-#         include=["documents", "metadatas"]
-#     )
-
-#     docs = results.get("documents", [[]])[0]      # list of retrieved document texts
-#     metadatas = results.get("metadatas", [{}])[0]  # list of metadata dicts
-
-#     # ----------------------
-#     # 3️⃣ Build context for the LLM
-#     # ----------------------
-#     context = "\n\n".join(
-#         f"[Source: {m.get('file', 'unknown')}, chunk: {m.get('chunk_id', '?')}]\n{d}"
-#         for d, m in zip(docs, metadatas)
-#     )
-
-#     prompt = f"""Answer the following query based on the provided context. 
-# If the context doesn't contain relevant information, respond honestly that you don't know.
+#     try:
+#         # Import here to avoid circular import and ensure fresh client
+#         from embed import get_embedding, get_or_create_collection
+        
+#         # Get fresh collection
+#         collection = get_or_create_collection()
+        
+#         # Get query embedding
+#         query_embedding = get_embedding(query)
+        
+#         # Search in ChromaDB
+#         results = collection.query(
+#             query_embeddings=[query_embedding],
+#             n_results=top_k,
+#             include=["documents", "metadatas", "distances"]
+#         )
+        
+#         if not results["documents"] or not results["documents"][0]:
+#             return "No relevant documents found."
+        
+#         # Build context from results
+#         context_parts = []
+#         for i, (doc, metadata) in enumerate(zip(results["documents"][0], results["metadatas"][0])):
+#             source = metadata.get("file", "unknown")
+#             chunk_id = metadata.get("chunk_id", "?")
+#             context_parts.append(f"[Source: {source}, Chunk: {chunk_id}]\n{doc}\n")
+        
+#         context = "\n---\n".join(context_parts)
+        
+#         # Build prompt
+#         prompt = f"""You are a helpful assistant. Answer the question based on the following context.
 
 # Context:
 # {context}
 
-# Query: {query}
+# Question: {query}
 
-# Answer:"""
+# Answer the question based only on the context provided above. If the context doesn't contain relevant information, say so."""
 
-#     # ----------------------
-#     # 4️⃣ Call Bedrock LLM
-#     # ----------------------
-#     request_body = {
-#         "anthropic_version": "bedrock-2023-05-31",
-#         "max_tokens": 2000,
-#         "messages": [
-#             {"role": "user", "content": prompt}
-#         ]
-#     }
-
-#     try:
-#         resp = bedrock_client.invoke_model(
+#         # Call Bedrock
+#         request_body = {
+#             "anthropic_version": "bedrock-2023-05-31",
+#             "max_tokens": 2000,
+#             "temperature": 0.7,
+#             "messages": [
+#                 {"role": "user", "content": prompt}
+#             ]
+#         }
+        
+#         response = bedrock_client.invoke_model(
 #             modelId=BEDROCK_MODEL_ID,
 #             body=json.dumps(request_body),
 #             contentType="application/json"
 #         )
-
-#         response_body = json.loads(resp['body'].read().decode("utf-8"))
+        
+#         response_body = json.loads(response['body'].read().decode("utf-8"))
 #         answer = response_body['content'][0]['text']
+        
 #         return answer
-
+        
 #     except Exception as e:
-#         print(f"❌ Error querying Bedrock: {e}")
-#         raise
+#         import traceback
+#         error_details = traceback.format_exc()
+#         return f"Error querying RAG system: {e}\n\nDebug info:\n{error_details}"
 
 
 # # ----------------------
@@ -103,12 +99,14 @@
 
 
 
-# query.py (updated)
+
+# query.py - FIXED + DETAILED LOGGING VERSION
 import os
 import json
 import boto3
-from embed import get_embedding, client
+import time
 from dotenv import load_dotenv
+from datetime import datetime
 
 # ----------------------
 # Load environment variables
@@ -123,97 +121,128 @@ BEDROCK_MODEL_ID = os.getenv(
 bedrock_client = boto3.client("bedrock-runtime", region_name=AWS_REGION)
 
 # ----------------------
-# Chroma collection
+# LOGGING UTILS
 # ----------------------
-collection = client.get_collection("pdf_docs")
+def log(msg: str, level: str = "INFO"):
+    """Timestamped colored logs (Windows-safe)."""
+    ts = datetime.now().strftime("%H:%M:%S")
+    color = {
+        "INFO": "\033[94m",      # Blue
+        "SUCCESS": "\033[92m",   # Green
+        "WARN": "\033[93m",      # Yellow
+        "ERROR": "\033[91m",     # Red
+        "RESET": "\033[0m"
+    }
+    print(f"{color.get(level, '')}[{ts}] [{level}] {msg}{color['RESET']}")
 
-
+# ----------------------
+# RAG QUERY FUNCTION
+# ----------------------
 def query_rag_system(query: str, top_k: int = 5) -> str:
     """
-    Query the RAG system and get answer from Bedrock LLM (Claude).
-    Returns the LLM-generated answer.
+    Query the RAG system with detailed logs and error handling.
     """
-    print(f"🔍 [QUERY LOG] Starting RAG query: '{query}' (top_k={top_k})")
-    
-    # ----------------------
-    # 1️⃣ Generate embedding for the query
-    # ----------------------
-    print("🔍 [QUERY LOG] Generating embedding for query...")
-    query_emb = get_embedding(query)  # ensure it's a list of floats
-    print("✅ [QUERY LOG] Embedding generated successfully.")
+    start_time = time.time()
+    log(f"Starting RAG query: \"{query}\" (top_k={top_k})", "INFO")
 
-    # ----------------------
-    # 2️⃣ Retrieve top-k relevant documents from Chroma
-    # ----------------------
-    print(f"🔍 [QUERY LOG] Retrieving top-{top_k} documents from Chroma...")
-    results = collection.query(
-        query_embeddings=[query_emb],
-        n_results=top_k,
-        include=["documents", "metadatas"]
-    )
-    print(f"✅ [QUERY LOG] Retrieved {len(results.get('documents', [[]])[0])} documents.")
+    try:
+        # Import here to avoid circular imports
+        from embed import get_embedding, get_or_create_collection
 
-    docs = results.get("documents", [[]])[0]      # list of retrieved document texts
-    metadatas = results.get("metadatas", [{}])[0]  # list of metadata dicts
+        # Step 1: Get collection
+        log("🔍 Getting or creating Chroma collection...", "INFO")
+        collection = get_or_create_collection()
 
-    # ----------------------
-    # 3️⃣ Build context for the LLM
-    # ----------------------
-    print("🔍 [QUERY LOG] Building context for LLM...")
-    context = "\n\n".join(
-        f"[Source: {m.get('file', 'unknown')}, chunk: {m.get('chunk_id', '?')}]\n{d}"
-        for d, m in zip(docs, metadatas)
-    )
-    print(f"✅ [QUERY LOG] Context built ({len(context)} chars).")
+        # Step 2: Get query embedding
+        log("🔮 Generating query embedding via Bedrock Titan...", "INFO")
+        t0 = time.time()
+        query_embedding = get_embedding(query)
+        log(f"✅ Query embedding generated in {time.time() - t0:.2f}s", "SUCCESS")
 
-    prompt = f"""Answer the following query based on the provided context. 
-If the context doesn't contain relevant information, respond honestly that you don't know.
+        # Step 3: Query Chroma
+        log("📚 Querying Chroma for top similar chunks...", "INFO")
+        t1 = time.time()
+        results = collection.query(
+            query_embeddings=[query_embedding],
+            n_results=top_k,
+            include=["documents", "metadatas", "distances"]
+        )
+        log(f"✅ Chroma query completed in {time.time() - t1:.2f}s", "SUCCESS")
+
+        # Step 4: Handle no results
+        if not results["documents"] or not results["documents"][0]:
+            log("⚠️ No relevant documents found in the collection.", "WARN")
+            return "No relevant documents found."
+
+        # Step 5: Build context
+        log(f"🧩 Building context from top {len(results['documents'][0])} chunks...", "INFO")
+        context_parts = []
+        for i, (doc, metadata) in enumerate(zip(results["documents"][0], results["metadatas"][0])):
+            source = metadata.get("file", "unknown")
+            chunk_id = metadata.get("chunk_id", "?")
+            dist = results["distances"][0][i] if "distances" in results else None
+            log(f"  → Chunk {i+1}: Source={source}, ID={chunk_id}, Distance={dist}", "INFO")
+            context_parts.append(f"[Source: {source}, Chunk: {chunk_id}]\n{doc}\n")
+
+        context = "\n---\n".join(context_parts)
+
+        # Optional: preview first few chars
+        preview = context[:300].replace("\n", " ")
+        log(f"🧠 Context preview: {preview}...", "INFO")
+
+        # Step 6: Prepare Bedrock prompt
+        prompt = f"""You are a helpful assistant. Answer the question based on the following context.
 
 Context:
 {context}
 
-Query: {query}
+Question: {query}
 
-Answer:"""
-    print("✅ [QUERY LOG] Prompt prepared.")
+Answer the question based only on the context provided above. 
+If the context doesn't contain relevant information, say so."""
 
-    # ----------------------
-    # 4️⃣ Call Bedrock LLM
-    # ----------------------
-    print("🔍 [QUERY LOG] Calling Bedrock LLM (Claude)...")
-    request_body = {
-        "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": 2000,
-        "messages": [
-            {"role": "user", "content": prompt}
-        ]
-    }
+        # Step 7: Invoke Bedrock model
+        log(f"💬 Calling Bedrock model ({BEDROCK_MODEL_ID})...", "INFO")
+        t2 = time.time()
+        request_body = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 2000,
+            "temperature": 0.7,
+            "messages": [{"role": "user", "content": prompt}]
+        }
 
-    try:
-        resp = bedrock_client.invoke_model(
+        response = bedrock_client.invoke_model(
             modelId=BEDROCK_MODEL_ID,
             body=json.dumps(request_body),
             contentType="application/json"
         )
 
-        response_body = json.loads(resp['body'].read().decode("utf-8"))
-        answer = response_body['content'][0]['text']
-        print("✅ [QUERY LOG] LLM response received successfully.")
-        print(f"📝 [QUERY LOG] Answer length: {len(answer)} chars")
+        response_body = json.loads(response["body"].read().decode("utf-8"))
+        answer = response_body["content"][0]["text"]
+        log(f"✅ Bedrock response received in {time.time() - t2:.2f}s", "SUCCESS")
+
+        total_time = time.time() - start_time
+        log(f"🏁 Query completed successfully in {total_time:.2f}s", "SUCCESS")
+
         return answer
 
     except Exception as e:
-        print(f"❌ [QUERY LOG] Error querying Bedrock: {e}")
-        raise
-
+        import traceback
+        error_details = traceback.format_exc()
+        log(f"❌ Error during RAG query: {e}", "ERROR")
+        log(f"Debug Trace:\n{error_details}", "ERROR")
+        return f"Error querying RAG system: {e}\n\nDebug info:\n{error_details}"
 
 # ----------------------
-# CLI Test
+# CLI TEST
 # ----------------------
 if __name__ == "__main__":
     query = input("Enter your query: ")
     try:
         answer = query_rag_system(query)
-        print("\nAnswer:\n", answer)
+        print("\n\n==============================")
+        print("🧠 FINAL ANSWER:")
+        print("==============================")
+        print(answer)
     except Exception as e:
-        print(f"Error: {e}")
+        log(f"Fatal error in CLI mode: {e}", "ERROR")

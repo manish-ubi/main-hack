@@ -1,4 +1,4 @@
-# main.py (enhanced with CSV SQL integration)
+# main.py - TOP SECTION ONLY (Import fixes)
 import os
 import streamlit as st
 import time
@@ -10,7 +10,9 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 import duckdb
 import boto3
-from embed import build_or_update_index, client, bedrock_client, get_embedding
+
+# FIXED IMPORTS - Import functions, not client directly
+from embed import build_or_update_index, bedrock_client, get_embedding, get_or_create_collection
 from upload import upload_single, upload_batch
 from query import query_rag_system
 from dotenv import load_dotenv
@@ -28,10 +30,10 @@ st.title("🧬 Gilead Agentic QA (AWS) - Enhanced")
 
 # Initialize session state
 if 'query_cache' not in st.session_state:
-    st.session_state.query_cache = {}  # {cache_key: {'answer': str, 'access_count': int, 'timestamp': float}}
+    st.session_state.query_cache = {}
 
 if 'feedback' not in st.session_state:
-    st.session_state.feedback = []  # List of {'query': str, 'answer': str, 'feedback': str, 'timestamp': float}
+    st.session_state.feedback = []
 
 if 'csv_handler' not in st.session_state:
     st.session_state.csv_handler = None
@@ -719,7 +721,8 @@ with st.sidebar:
     st.divider()
     st.subheader("📊 Index Stats")
     try:
-        collection = client.get_collection("pdf_docs")
+        # Get fresh collection for stats
+        collection = get_or_create_collection()
         results = collection.get(include=["documents", "metadatas"])
         total_chunks = len(results["ids"])
         unique_files = set(m.get("file", "unknown") for m in results["metadatas"] if isinstance(m, dict))
@@ -732,3 +735,4 @@ with st.sidebar:
                 st.text(f"📄 {doc}")
     except Exception as e:
         st.error(f"❌ Could not load stats: {e}")
+
