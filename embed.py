@@ -13,7 +13,7 @@ AWS_REGION = os.getenv("AWS_REGION", "us-west-2")
 EMBEDDING_MODEL_ID = os.getenv("EMBEDDING_MODEL_ID", "amazon.titan-embed-text-v2:0")  # Add this to .env
 LLM_MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "anthropic.claude-3-sonnet-20240229-v1:0")  # For reference
 
-bedrock_client = boto3.client("bedrock-runtime", region_name=AWS_REGION)
+bedrock_client = boto3.client("bedrock-runtime", region_name=AWS_REGION, profile_name="saml")
 # Chroma client (persistent for local dev; adjust path if needed)
 client = chromadb.PersistentClient(path="./chroma_db")  # Creates ./chroma_db dir
 collection = client.get_or_create_collection(name="pdf_docs")
@@ -81,6 +81,42 @@ def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]
         start = end - overlap
     return chunks
 
+# def build_or_update_index(file_paths: list[str]):
+#     """
+#     Build/update Chroma index from PDF files.
+#     Extracts text → chunks → embeds → adds to collection.
+#     """
+#     for file_path in file_paths:
+#         print(f"Processing {file_path}...")
+#         # Extract text
+#         full_text = extract_text_from_pdf(file_path)
+        
+#         # Chunk
+#         chunks = chunk_text(full_text)
+#         if not chunks:
+#             print(f"No text extracted from {file_path}")
+#             continue
+        
+#         # Embed chunks
+#         embeddings = []
+#         for i, chunk in enumerate(chunks):
+#             emb = get_embedding(chunk)  # <-- This now works—no string index error
+#             embeddings.append(emb)
+        
+#         # Metadatas & IDs
+#         metadatas = [{"file": os.path.basename(file_path), "chunk_id": i} for i in range(len(chunks))]
+#         ids = [f"{os.path.basename(file_path)}_chunk_{i}" for i in range(len(chunks))]
+        
+#         # Add to collection (upserts if ID exists)
+#         collection.add(
+#             documents=chunks,
+#             embeddings=embeddings,
+#             metadatas=metadatas,
+#             ids=ids
+#         )
+#         print(f"Added {len(chunks)} chunks from {file_path}")
+
+
 def build_or_update_index(file_paths: list[str]):
     """
     Build/update Chroma index from PDF files.
@@ -89,29 +125,45 @@ def build_or_update_index(file_paths: list[str]):
     for file_path in file_paths:
         print(f"Processing {file_path}...")
         # Extract text
+        print(f"  Extracting text from {os.path.basename(file_path)}...")
         full_text = extract_text_from_pdf(file_path)
+        print(f"  Extracted {len(full_text)} characters of text.")
         
         # Chunk
+        print(f"  Chunking text into 500-word segments...")
         chunks = chunk_text(full_text)
         if not chunks:
             print(f"No text extracted from {file_path}")
             continue
+        print(f"  Created {len(chunks)} chunks.")
         
         # Embed chunks
+        print(f"  Generating embeddings for {len(chunks)} chunks...")
         embeddings = []
         for i, chunk in enumerate(chunks):
+            print(f"    Embedding chunk {i+1}/{len(chunks)} ({len(chunk)} chars)...")
             emb = get_embedding(chunk)  # <-- This now works—no string index error
             embeddings.append(emb)
+            if (i + 1) % 10 == 0:  # Progress every 10 chunks
+                print(f"    Progress: {i+1}/{len(chunks)} chunks embedded.")
+        print(f"  All {len(embeddings)} embeddings generated successfully.")
         
         # Metadatas & IDs
         metadatas = [{"file": os.path.basename(file_path), "chunk_id": i} for i in range(len(chunks))]
         ids = [f"{os.path.basename(file_path)}_chunk_{i}" for i in range(len(chunks))]
+        print(f"  Prepared metadata and IDs for {len(metadatas)} items.")
         
         # Add to collection (upserts if ID exists)
-        collection.add(
-            documents=chunks,
-            embeddings=embeddings,
-            metadatas=metadatas,
-            ids=ids
-        )
+        print(f"  Adding {len(chunks)} chunks to Chroma collection...")
+        try:
+            collection.add(
+                documents=chunks,
+                embeddings=embeddings,
+                metadatas=metadatas,
+                ids=ids
+            )
+            print(f"  ✅ Successfully added {len(chunks)} chunks from {file_path}.")
+        except Exception as e:
+            print(f"  ❌ Error adding chunks from {file_path}: {e}")
+            raise
         print(f"Added {len(chunks)} chunks from {file_path}")
