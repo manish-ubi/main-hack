@@ -1,253 +1,16 @@
-# # # main.py
-# # import os
-# # import streamlit as st
-# # # from embed import build_or_update_index
-# # from embed import build_or_update_index
-# # from embed import client
-
-
-# # from upload import upload_single, upload_batch
-# # from query import query_rag_system
-# # from dotenv import load_dotenv
-
-# # load_dotenv()
-# # st.set_page_config(page_title="📄 RAG System", layout="wide")
-# # st.title("📄 RAG System with AWS Bedrock & S3")
-
-# # # ----------------------
-# # # Sidebar: Upload PDFs
-# # # ----------------------
-# # st.sidebar.header("📤 Upload PDFs")
-# # upload_mode = st.sidebar.radio("Mode", ["Single File", "Batch Folder"])
-# # uploaded_files_local = []
-
-# # log_container = st.sidebar.empty()
-# # progress_bar = st.sidebar.progress(0)
-
-# # def log(msg, step=None, total=None):
-# #     log_container.text(msg)
-# #     if step and total:
-# #         progress_bar.progress(min(int((step/total)*100), 100))
-
-# # # ----------------------
-# # # Upload PDFs
-# # # ----------------------
-# # if upload_mode == "Single File":
-# #     file = st.sidebar.file_uploader("Upload PDF", type="pdf")
-# #     if file and st.sidebar.button("Upload & Process"):
-# #         local_path = os.path.join(os.getcwd(), file.name)
-# #         with open(local_path, "wb") as f:
-# #             f.write(file.getbuffer())
-# #         upload_single(local_path)
-# #         uploaded_files_local.append(local_path)
-# #         st.sidebar.success(f"✅ Uploaded {file.name}")
-
-# # elif upload_mode == "Batch Folder":
-# #     folder = st.sidebar.text_input("Folder Path")
-# #     if folder and st.sidebar.button("Upload Batch"):
-# #         if not os.path.exists(folder):
-# #             st.sidebar.error("Folder does not exist!")
-# #         else:
-# #             upload_batch(folder)
-# #             for f in os.listdir(folder):
-# #                 if f.lower().endswith(".pdf"):
-# #                     uploaded_files_local.append(os.path.join(folder, f))
-# #             st.sidebar.success(f"✅ Batch uploaded from {folder}")
-
-# # # ----------------------
-# # # Build Index Immediately
-# # # ----------------------
-# # if uploaded_files_local:
-# #     st.info("🔄 Extracting text and creating embeddings...")
-# #     try:
-# #         build_or_update_index(uploaded_files_local)
-# #         st.success("✅ All embeddings built and index updated!")
-# #         uploaded_files_local = []
-# #         progress_bar.progress(100)
-# #     except Exception as e:
-# #         st.error(f"❌ Error processing PDFs: {e}")
-
-# # # ----------------------
-# # # Query RAG system
-# # # ----------------------
-# # st.header("🔍 Query Documents")
-# # query = st.text_input("Enter your query", placeholder="What would you like to know?")
-# # top_k = st.slider("Number of results", 1, 10, 5)
-
-# # if st.button("🔎 Search"):
-# #     if query.strip() == "":
-# #         st.warning("⚠️ Enter a query first!")
-# #     else:
-# #         try:
-# #             with st.spinner("Querying RAG system..."):
-# #                 answer = query_rag_system(query, top_k)
-# #             st.write("### 📝 Answer:")
-# #             st.write(answer)
-# #         except FileNotFoundError:
-# #             st.error("❌ No documents processed yet.")
-# #         except Exception as e:
-# #             st.error(f"❌ Error querying system: {e}")
-
-# # # ----------------------
-# # # ----------------------
-# # # Show index stats
-# # # ----------------------
-# # with st.sidebar:
-# #     st.divider()
-# #     st.subheader("📊 Index Stats")
-
-# #     # Get Chroma collection
-# #     collection = client.get_collection("pdf_docs")
-# #     results = collection.get(include=["documents", "metadatas"])  # documents + metadata
-
-# #     total_chunks = len(results["ids"])
-
-# #     # Ensure metadata is dict and has "file"
-# #     unique_files = set()
-# #     for m in results["metadatas"]:
-# #         if isinstance(m, dict) and "file" in m:
-# #             unique_files.add(m["file"])
-
-# #     st.metric("Total Chunks", total_chunks)
-# #     st.metric("Documents", len(unique_files))
-
-# #     with st.expander("View Documents"):
-# #         for doc in sorted(unique_files):
-# #             st.text(f"📄 {doc}")
-
-
-# # main.py (updated)
-# import os
-# import streamlit as st
-# from embed import build_or_update_index, client
-# from upload import upload_single, upload_batch
-# from query import query_rag_system
-# from dotenv import load_dotenv
-
-# load_dotenv()
-# st.set_page_config(page_title="📄 RAG System", layout="wide")
-# st.title("📄 RAG System with AWS Bedrock & S3")
-
-# # Initialize session state for caching if not exists
-# if 'query_cache' not in st.session_state:
-#     st.session_state.query_cache = {}
-
-# # ----------------------
-# # Sidebar: Upload PDFs
-# # ----------------------
-# st.sidebar.header("📤 Upload PDFs")
-# upload_mode = st.sidebar.radio("Mode", ["Single File", "Batch Folder"])
-# uploaded_files_local = []
-
-# log_container = st.sidebar.empty()
-# progress_bar = st.sidebar.progress(0)
-
-# def log(msg, step=None, total=None):
-#     log_container.text(msg)
-#     if step and total:
-#         progress_bar.progress(min(int((step/total)*100), 100))
-
-# # ----------------------
-# # Upload PDFs
-# # ----------------------
-# if upload_mode == "Single File":
-#     file = st.sidebar.file_uploader("Upload PDF", type="pdf")
-#     if file and st.sidebar.button("Upload & Process"):
-#         local_path = os.path.join(os.getcwd(), file.name)
-#         with open(local_path, "wb") as f:
-#             f.write(file.getbuffer())
-#         upload_single(local_path)
-#         uploaded_files_local.append(local_path)
-#         st.sidebar.success(f"✅ Uploaded {file.name}")
-
-# elif upload_mode == "Batch Folder":
-#     folder = st.sidebar.text_input("Folder Path")
-#     if folder and st.sidebar.button("Upload Batch"):
-#         if not os.path.exists(folder):
-#             st.sidebar.error("Folder does not exist!")
-#         else:
-#             upload_batch(folder)
-#             for f in os.listdir(folder):
-#                 if f.lower().endswith(".pdf"):
-#                     uploaded_files_local.append(os.path.join(folder, f))
-#             st.sidebar.success(f"✅ Batch uploaded from {folder}")
-
-# # ----------------------
-# # Build Index Immediately
-# # ----------------------
-# if uploaded_files_local:
-#     st.info("🔄 Extracting text and creating embeddings...")
-#     try:
-#         build_or_update_index(uploaded_files_local)
-#         st.success("✅ All embeddings built and index updated!")
-#         uploaded_files_local = []
-#         progress_bar.progress(100)
-#     except Exception as e:
-#         st.error(f"❌ Error processing PDFs: {e}")
-
-# # ----------------------
-# # Query RAG system
-# # ----------------------
-# st.header("🔍 Query Documents")
-# query = st.text_input("Enter your query", placeholder="What would you like to know?")
-# top_k = st.slider("Number of results", 1, 10, 5)
-
-# if st.button("🔎 Search"):
-#     if query.strip() == "":
-#         st.warning("⚠️ Enter a query first!")
-#     else:
-#         # Caching logic: case-insensitive query + top_k
-#         cache_key = query.lower().strip() + "_" + str(top_k)
-#         if cache_key in st.session_state.query_cache:
-#             st.info("📦 Using cached response...")
-#             st.write("### 📝 Answer:")
-#             st.write(st.session_state.query_cache[cache_key])
-#         else:
-#             try:
-#                 with st.spinner("Querying RAG system..."):
-#                     answer = query_rag_system(query, top_k)
-#                 st.session_state.query_cache[cache_key] = answer
-#                 st.write("### 📝 Answer:")
-#                 st.write(answer)
-#             except FileNotFoundError:
-#                 st.error("❌ No documents processed yet.")
-#             except Exception as e:
-#                 st.error(f"❌ Error querying system: {e}")
-
-# # ----------------------
-# # Show index stats
-# # ----------------------
-# with st.sidebar:
-#     st.divider()
-#     st.subheader("📊 Index Stats")
-
-#     # Get Chroma collection
-#     collection = client.get_collection("pdf_docs")
-#     results = collection.get(include=["documents", "metadatas"])  # documents + metadata
-
-#     total_chunks = len(results["ids"])
-
-#     # Ensure metadata is dict and has "file"
-#     unique_files = set()
-#     for m in results["metadatas"]:
-#         if isinstance(m, dict) and "file" in m:
-#             unique_files.add(m["file"])
-
-#     st.metric("Total Chunks", total_chunks)
-#     st.metric("Documents", len(unique_files))
-
-#     with st.expander("View Documents"):
-#         for doc in sorted(unique_files):
-#             st.text(f"📄 {doc}")
-
-
-
-# main.py (enhanced with tabs, cache management, analytics, and UI improvements)
+# main.py (enhanced with CSV SQL integration)
 import os
 import streamlit as st
 import time
 from datetime import datetime
-from embed import build_or_update_index, client
+import json
+import re
+import sqlparse
+from typing import Any, Dict, List, Optional, Tuple
+import pandas as pd
+import duckdb
+import boto3
+from embed import build_or_update_index, client, bedrock_client, get_embedding
 from upload import upload_single, upload_batch
 from query import query_rag_system
 from dotenv import load_dotenv
@@ -269,6 +32,12 @@ if 'query_cache' not in st.session_state:
 
 if 'feedback' not in st.session_state:
     st.session_state.feedback = []  # List of {'query': str, 'answer': str, 'feedback': str, 'timestamp': float}
+
+if 'csv_handler' not in st.session_state:
+    st.session_state.csv_handler = None
+
+if 'csv_query_history' not in st.session_state:
+    st.session_state.csv_query_history = []
 
 # Custom function to compute cache stats
 @st.cache_data(ttl=60)  # Cache stats for 1 min
@@ -300,6 +69,271 @@ def compute_cache_stats():
         'oldest_entry_age_hours': round(oldest_age, 1),
         'newest_entry_age_hours': round(newest_age, 1)
     }
+
+# CSVSqlHandler class (adapted for current codebase)
+class CSVSqlHandler:
+    """Handler for CSV file loading and natural language to SQL conversion."""
+    
+    def __init__(self, workspace_dir: str = "csv_workspace"):
+        self.workspace_dir = workspace_dir
+        self.db_path = os.path.join(workspace_dir, "workspace.duckdb")
+        self.conn = None
+        self._ensure_workspace()
+        self._connect_db()
+    
+    def _ensure_workspace(self):
+        """Ensure workspace directory exists."""
+        os.makedirs(self.workspace_dir, exist_ok=True)
+        st.info(f"Workspace directory: {self.workspace_dir}")
+    
+    def _connect_db(self):
+        """Connect to DuckDB database."""
+        try:
+            self.conn = duckdb.connect(self.db_path)
+            st.success("Connected to DuckDB")
+        except Exception as e:
+            st.error(f"Failed to connect to DuckDB: {e}")
+            # Simplified retry logic
+            time.sleep(1)
+            try:
+                self.conn = duckdb.connect(self.db_path)
+                st.success("Connected to DuckDB after retry")
+            except Exception:
+                # Fallback to in-memory for simplicity
+                self.conn = duckdb.connect(":memory:")
+                self.db_path = ":memory:"
+                st.warning("Using in-memory DuckDB due to connection issues")
+    
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
+    
+    def load_csv_files(self, csv_files: List[str]) -> Dict[str, Any]:
+        """
+        Load CSV files into DuckDB tables.
+        Returns information about loaded tables.
+        """
+        loaded_tables = []
+        errors = []
+        
+        for csv_file in csv_files:
+            try:
+                # Extract table name from filename
+                table_name = os.path.splitext(os.path.basename(csv_file))[0]
+                # Sanitize table name
+                table_name = re.sub(r'[^a-zA-Z0-9_]', '_', table_name)
+                if not table_name or table_name[0].isdigit():
+                    table_name = f"table_{table_name}"
+                
+                # Load CSV into DuckDB
+                self.conn.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM read_csv_auto(?)", [csv_file])
+                
+                # Get table info
+                table_info = self.get_table_info(table_name)
+                loaded_tables.append({
+                    "table_name": table_name,
+                    "file_path": csv_file,
+                    "row_count": table_info["row_count"],
+                    "columns": table_info["columns"]
+                })
+                
+                st.info(f"Loaded table '{table_name}' with {table_info['row_count']} rows")
+                
+            except Exception as e:
+                error_msg = f"Failed to load {csv_file}: {e}"
+                st.error(error_msg)
+                errors.append(error_msg)
+        
+        return {
+            "loaded_tables": loaded_tables,
+            "errors": errors,
+            "success_count": len(loaded_tables),
+            "error_count": len(errors)
+        }
+    
+    def get_table_info(self, table_name: str) -> Dict[str, Any]:
+        """Get information about a table."""
+        try:
+            # Get row count
+            result = self.conn.execute(f"SELECT COUNT(*) as count FROM {table_name}").fetchone()
+            row_count = result[0] if result else 0
+            
+            # Get column information
+            result = self.conn.execute(f"DESCRIBE {table_name}").fetchall()
+            columns = [{"name": row[0], "type": row[1]} for row in result]
+            
+            return {
+                "row_count": row_count,
+                "columns": columns
+            }
+        except Exception as e:
+            st.warning(f"Failed to get table info for {table_name}: {e}")
+            return {"row_count": 0, "columns": []}
+    
+    def get_all_tables(self) -> List[Dict[str, Any]]:
+        """Get information about all tables in the database."""
+        try:
+            result = self.conn.execute("SHOW TABLES").fetchall()
+            tables = []
+            for row in result:
+                table_name = row[0]
+                table_info = self.get_table_info(table_name)
+                tables.append({
+                    "table_name": table_name,
+                    **table_info
+                })
+            return tables
+        except Exception as e:
+            st.warning(f"Failed to get tables: {e}")
+            return []
+    
+    def natural_language_to_sql(self, question: str, table_context: Optional[str] = None) -> str:
+        """
+        Convert natural language question to SQL query using Bedrock.
+        """
+        # Get table information for context
+        tables_info = self.get_all_tables()
+        if not tables_info:
+            raise ValueError("No tables available for querying")
+        
+        # Build context about available tables
+        context_parts = []
+        for table in tables_info:
+            columns_str = ", ".join([f"{col['name']} ({col['type']})" for col in table['columns']])
+            context_parts.append(f"Table '{table['table_name']}': {columns_str} ({table['row_count']} rows)")
+        
+        tables_context = "\n".join(context_parts)
+        
+        # Add specific table context if provided
+        if table_context:
+            tables_context = f"Focus on table: {table_context}\n\nAll tables:\n{tables_context}"
+        
+        prompt = f"""You are a SQL expert for DuckDB. Convert the user's natural language question to a valid DuckDB SQL query.
+
+Available tables and their schemas:
+{tables_context}
+
+User question: {question}
+
+Requirements:
+1. Ensure you understand the requirement of the user in the SQL format
+2. Generate ONLY a valid DuckDB SQL query
+3. Use proper table and column names as shown above
+4. Include appropriate WHERE clauses, JOINs, and aggregations as needed
+5. Use LIMIT clause if the result might be large
+6. Do not include any explanations or markdown formatting 
+7. Ensure the query is safe and doesn't contain any dangerous operations
+
+SQL Query:"""
+        
+        # Use existing bedrock_client and model
+        AWS_REGION = os.getenv("AWS_REGION", "us-west-2")
+        BEDROCK_MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "anthropic.claude-3-sonnet-20240229-v1:0")
+        
+        request_body = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 500,
+            "temperature": 0.1,
+            "messages": [
+                {"role": "user", "content": prompt}
+            ]
+        }
+        
+        try:
+            resp = bedrock_client.invoke_model(
+                modelId=BEDROCK_MODEL_ID,
+                body=json.dumps(request_body),
+                contentType="application/json"
+            )
+            response_body = json.loads(resp['body'].read().decode("utf-8"))
+            sql_query = response_body['content'][0]['text']
+            
+            # Clean up the response
+            sql_query = sql_query.strip()
+            if sql_query.startswith("```sql"):
+                sql_query = sql_query[6:]
+            if sql_query.endswith("```"):
+                sql_query = sql_query[:-3]
+            sql_query = sql_query.strip()
+            
+            st.info(f"Generated SQL: {sql_query}")
+            return sql_query
+            
+        except Exception as e:
+            st.error(f"Failed to generate SQL: {e}")
+            raise
+    
+    def validate_sql(self, sql_query: str) -> Tuple[bool, Optional[str]]:
+        """
+        Validate SQL query for safety and syntax.
+        Returns (is_valid, error_message).
+        """
+        try:
+            # Parse SQL to check syntax
+            parsed = sqlparse.parse(sql_query)
+            if not parsed:
+                return False, "Empty SQL query"
+            
+            # Check for dangerous operations
+            dangerous_keywords = [
+                "DROP", "DELETE", "INSERT", "UPDATE", "ALTER", "CREATE", "TRUNCATE",
+                "EXEC", "EXECUTE", "CALL", "GRANT", "REVOKE", "REMOVE"
+            ]
+            
+            upper_sql = sql_query.upper()
+            for keyword in dangerous_keywords:
+                if keyword in upper_sql:
+                    return False, f"Dangerous operation detected: {keyword}"
+            
+            # Try to explain the query (DuckDB's EXPLAIN will validate syntax)
+            try:
+                self.conn.execute(f"EXPLAIN {sql_query}")
+                return True, None
+            except Exception as e:
+                return False, f"SQL syntax error: {e}"
+                
+        except Exception as e:
+            return False, f"Validation error: {e}"
+    
+    def execute_sql(self, sql_query: str) -> Tuple[bool, Optional[pd.DataFrame], Optional[str]]:
+        """
+        Execute SQL query and return results.
+        Returns (success, dataframe, error_message).
+        """
+        try:
+            # Validate first
+            is_valid, error_msg = self.validate_sql(sql_query)
+            if not is_valid:
+                return False, None, error_msg
+            
+            # Execute query
+            result = self.conn.execute(sql_query)
+            df = result.df()
+            
+            st.info(f"SQL executed successfully, returned {len(df)} rows")
+            return True, df, None
+            
+        except Exception as e:
+            error_msg = f"SQL execution failed: {e}"
+            st.error(error_msg)
+            return False, None, error_msg
+    
+    def get_table_sample(self, table_name: str, limit: int = 5) -> Optional[pd.DataFrame]:
+        """Get a sample of data from a table."""
+        try:
+            result = self.conn.execute(f"SELECT * FROM {table_name} LIMIT {limit}")
+            return result.df()
+        except Exception as e:
+            st.warning(f"Failed to get sample from {table_name}: {e}")
+            return None
+    
+    def close(self):
+        """Close database connection."""
+        if self.conn:
+            self.conn.close()
+            st.info("Database connection closed")
 
 # Tabs
 tab1, tab2, tab3, tab4 = st.tabs(["📄 PDF Q&A", "📊 CSV SQL", "📈 Analytics", "⚙️ Cache Management"])
@@ -444,9 +478,137 @@ with tab1:
                 st.empty()
 
 with tab2:
-    # CSV SQL Tab - Placeholder
+    # CSV SQL Tab
     st.header("📊 CSV SQL")
-    st.info("🔄 CSV SQL functionality coming soon. Upload CSVs and query with natural language SQL.")
+    
+    # Initialize CSV handler if not exists
+    if st.session_state.csv_handler is None:
+        st.session_state.csv_handler = CSVSqlHandler()
+    
+    csv_handler = st.session_state.csv_handler
+    
+    # File upload section
+    st.subheader("📁 Load CSV Files")
+    csv_files = st.file_uploader("Upload CSV files", type=["csv"], accept_multiple_files=True)
+    
+    if csv_files and st.button("📥 Load CSVs", type="primary"):
+        # Save uploaded files
+        workspace = os.path.join(os.getcwd(), "csv_workspace")
+        os.makedirs(workspace, exist_ok=True)
+        
+        file_paths = []
+        for f in csv_files:
+            csv_path = os.path.join(workspace, f.name)
+            with open(csv_path, "wb") as w:
+                w.write(f.read())
+            file_paths.append(csv_path)
+        
+        # Load into database
+        with st.spinner("Loading CSV files..."):
+            try:
+                result = csv_handler.load_csv_files(file_paths)
+                
+                if result["success_count"] > 0:
+                    st.success(f"✅ Loaded {result['success_count']} tables successfully!")
+                    for table in result["loaded_tables"]:
+                        st.info(f"📊 {table['table_name']}: {table['row_count']} rows, {len(table['columns'])} columns")
+                
+                if result["errors"]:
+                    st.warning(f"⚠️ {len(result['errors'])} errors occurred")
+                    for error in result["errors"]:
+                        st.error(error)
+                        
+            except Exception as e:
+                st.error(f"❌ Loading failed: {e}")
+    
+    # Show loaded tables
+    tables = csv_handler.get_all_tables()
+    if tables:
+        st.subheader("📋 Loaded Tables")
+        for table in tables:
+            with st.expander(f"📊 {table['table_name']} ({table['row_count']} rows)"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write("**Columns:**")
+                    for col in table['columns']:
+                        st.write(f"- {col['name']} ({col['type']})")
+                with col2:
+                    # Show sample data
+                    sample = csv_handler.get_table_sample(table['table_name'])
+                    if sample is not None:
+                        st.write("**Sample Data:**")
+                        st.dataframe(sample, use_container_width=True)
+    
+    # Natural Language to SQL
+    st.subheader("🤖 Natural Language to SQL")
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        nl_question = st.text_input(
+            "Ask a question about your data:", 
+            placeholder="What are the top 5 products by sales?"
+        )
+    
+    with col2:
+        selected_table = st.selectbox(
+            "Focus on table (optional):", 
+            ["All tables"] + [t['table_name'] for t in tables]
+        ) if tables else st.selectbox("Focus on table (optional):", ["All tables"])
+    
+    if st.button("🔍 Generate SQL", type="primary") and nl_question.strip():
+        with st.spinner("Generating SQL..."):
+            try:
+                table_context = selected_table if selected_table != "All tables" else None
+                sql_query = csv_handler.natural_language_to_sql(nl_question, table_context)
+                
+                st.subheader("📝 Generated SQL")
+                st.code(sql_query, language="sql")
+                
+                # Validate SQL
+                is_valid, error_msg = csv_handler.validate_sql(sql_query)
+                if is_valid:
+                    st.success("✅ SQL is valid and safe")
+                    
+                    # Execute button
+                    if st.button("▶️ Execute SQL", type="primary"):
+                        with st.spinner("Executing query..."):
+                            success, df, exec_error = csv_handler.execute_sql(sql_query)
+                            if success:
+                                st.subheader("📊 Results")
+                                st.dataframe(df, use_container_width=True)
+                                # Show summary stats
+                                if len(df) > 0:
+                                    st.info(f"📈 Returned {len(df)} rows, {len(df.columns)} columns")
+                                # Store in CSV query history
+                                st.session_state.csv_query_history.append({
+                                    "question": nl_question,
+                                    "sql": sql_query,
+                                    "rows_returned": len(df),
+                                    "timestamp": time.time()
+                                })
+                            else:
+                                st.error(f"❌ Execution failed: {exec_error}")
+                else:
+                    st.error(f"❌ SQL validation failed: {error_msg}")
+                
+            except Exception as e:
+                st.error(f"❌ Generation failed: {e}")
+    
+    # Manual SQL execution
+    st.subheader("✏️ Manual SQL Execution")
+    manual_sql = st.text_area(
+        "Write your SQL query:", 
+        value="SELECT * FROM information_schema.tables LIMIT 10;",
+        height=100
+    )
+    
+    if st.button("▶️ Execute Manual SQL", type="secondary") and manual_sql.strip():
+        with st.spinner("Executing..."):
+            success, df, error_msg = csv_handler.execute_sql(manual_sql)
+            if success:
+                st.dataframe(df, use_container_width=True)
+            else:
+                st.error(f"❌ {error_msg}")
 
 with tab3:
     # Analytics Tab
@@ -462,8 +624,8 @@ with tab3:
     col3.metric("Max Access Count", stats['max_access_count'])
     col4.metric("Oldest Entry (hrs)", stats['oldest_entry_age_hours'])
     
-    # Feedback Statistics
-    st.subheader("👍👎 Feedback Statistics")
+    # PDF Feedback Statistics
+    st.subheader("👍👎 PDF Feedback Statistics")
     if st.session_state.feedback:
         positive = sum(1 for f in st.session_state.feedback if f['feedback'] == 'positive')
         negative = sum(1 for f in st.session_state.feedback if f['feedback'] == 'negative')
@@ -473,7 +635,13 @@ with tab3:
         col_fb2.metric("Negative Feedback", negative)
         st.caption(f"Total Feedback: {total}")
     else:
-        st.info("📭 Feedback statistics unavailable")
+        st.info("📭 PDF Feedback statistics unavailable")
+    
+    # CSV Query History (if any)
+    if st.session_state.csv_query_history:
+        st.subheader("📊 CSV Query History")
+        history_df = pd.DataFrame(st.session_state.csv_query_history)
+        st.dataframe(history_df, use_container_width=True)
 
 with tab4:
     # Cache Management Tab
