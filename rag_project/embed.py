@@ -1,182 +1,117 @@
 # embed.py
 import os
-import pickle
-import faiss
-import numpy as np
-from utils import extract_text_from_pdf, chunk_text
-import boto3
 import json
+import boto3
 from dotenv import load_dotenv
+from pypdf import PdfReader  # pip install pypdf if missing
+import chromadb
+from chromadb.config import Settings
 
-# Load environment variables
 load_dotenv()
 
-# ----------------------
-# Configuration
-# ----------------------
-AWS_REGION = os.getenv("AWS_REGION", "ap-south-1")
-# CRITICAL: Use correct Titan V2 model ID
-BEDROCK_EMBED_MODEL = "amazon.titan-embed-text-v2:0"
+AWS_REGION = os.getenv("AWS_REGION", "us-west-2")
+EMBEDDING_MODEL_ID = os.getenv("EMBEDDING_MODEL_ID", "amazon.titan-embed-text-v2:0")  # Add this to .env
+LLM_MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "anthropic.claude-3-sonnet-20240229-v1:0")  # For reference
 
-FAISS_INDEX_DIR = "faiss_index"
-FAISS_INDEX_FILE = os.path.join(FAISS_INDEX_DIR, "index.faiss")
-METADATA_FILE = os.path.join(FAISS_INDEX_DIR, "metadata.pkl")
-
-os.makedirs(FAISS_INDEX_DIR, exist_ok=True)
-
-# ----------------------
-# AWS Bedrock client
-# ----------------------
 bedrock_client = boto3.client("bedrock-runtime", region_name=AWS_REGION)
+# Chroma client (persistent for local dev; adjust path if needed)
+client = chromadb.PersistentClient(path="./chroma_db")  # Creates ./chroma_db dir
+collection = client.get_or_create_collection(name="pdf_docs")
 
 # ----------------------
 # Embedding function
 # ----------------------
-def get_embedding(text: str) -> np.ndarray:
+def get_embedding(text: str) -> list:
     """
-    Calls Bedrock Titan V2 embedding model and returns a float32 numpy array.
-    
-    Amazon Titan Text Embeddings V2 specifications:
-    - Model ID: amazon.titan-embed-text-v2:0
-    - Max input tokens: 8,192
-    - Max input characters: 50,000
-    - Output vector size: 1,024 (default), 512, or 256
-    - Supports 100+ languages
+    Get embedding from Bedrock (Titan Embeddings).
+    Returns list of floats.
     """
-    # Truncate text if too long (Titan V2 max: 50,000 chars)
-    max_chars = 50000
-    if len(text) > max_chars:
-        print(f"Warning: Text truncated from {len(text)} to {max_chars} characters")
-        text = text[:max_chars]
-    
-    # Titan V2 request format
-    payload = {
-        "inputText": text,
-        "dimensions": 1024,  # Output dimension (1024 is default)
-        "normalize": True    # Normalize embeddings for cosine similarity
-    }
-    
+    if not text.strip():
+        return [0.0] * 1536  # Dummy zero-vector for empty text (adjust dim if using different model)
+
+    body = json.dumps({
+        "inputText": text
+    })
     try:
         resp = bedrock_client.invoke_model(
-            modelId=BEDROCK_EMBED_MODEL,
-            body=json.dumps(payload),
-            contentType="application/json"
+            modelId=EMBEDDING_MODEL_ID,
+            body=body,
+            contentType="application/json",
+            accept="application/json"
         )
-        
-        # Read and parse response
-        resp_body = resp['body'].read().decode("utf-8")
-        resp_json = json.loads(resp_body)
-        
-        # Extract embedding from response
-        embedding = np.array(resp_json["embedding"], dtype="float32")
-        
-        # Verify dimension
-        if embedding.shape[0] != 1024:
-            raise ValueError(f"Expected 1024 dimensions, got {embedding.shape[0]}")
-        
-        return embedding
-        
+        # <-- FIXED: Always json.loads() the body—don't skip this!
+        response_body = json.loads(resp["body"].read().decode("utf-8"))
+        return response_body["embedding"]  # List of floats
     except Exception as e:
-        print(f"❌ Error getting embedding: {e}")
-        print(f"   Model ID: {BEDROCK_EMBED_MODEL}")
-        print(f"   Region: {AWS_REGION}")
-        print(f"   Text length: {len(text)} characters")
+        print(f"❌ Embedding error: {e}")
         raise
 
 # ----------------------
-# FAISS index builder / updater
+# Build / update Chroma index
 # ----------------------
-def build_or_update_index(pdf_paths):
+
+def extract_text_from_pdf(file_path: str) -> str:
     """
-    Build or update FAISS index from a list of local PDF file paths.
-    Uses Amazon Titan Text Embeddings V2 (1024 dimensions)
+    Extract text from PDF using pypdf (reliable for most PDFs).
     """
-    # Load existing index and metadata if available
-    if os.path.exists(FAISS_INDEX_FILE):
-        index = faiss.read_index(FAISS_INDEX_FILE)
-        with open(METADATA_FILE, "rb") as f:
-            metadata = pickle.load(f)
-        print(f"✅ Loaded existing index with {len(metadata)} chunks")
-    else:
-        # Titan V2 embedding dimension is 1024
-        index = faiss.IndexFlatL2(1024)
-        metadata = []
-        print("✅ Created new FAISS index (1024 dimensions)")
-
-    # Process each PDF
-    for pdf_path in pdf_paths:
-        filename = os.path.basename(pdf_path)
-
-        # Skip already processed files
-        if any(m["file"] == filename for m in metadata):
-            print(f"⏭️  {filename} already processed. Skipping.")
-            continue
-
-        print(f"\n📄 Processing: {filename}")
-        print(f"   Extracting text...")
-        text = extract_text_from_pdf(pdf_path)
-        
-        if not text.strip():
-            print(f"⚠️  Warning: No text extracted from {filename}")
-            continue
-        
-        print(f"   Text length: {len(text)} characters")
-        chunks = chunk_text(text, chunk_size=500)
-        print(f"   Created {len(chunks)} chunks (500 words each)")
-        print(f"   Creating embeddings...")
-        
-        successful_chunks = 0
-        for idx, chunk in enumerate(chunks):
-            try:
-                emb = get_embedding(chunk).reshape(1, -1)
-                index.add(emb)
-                metadata.append({"file": filename, "text": chunk})
-                successful_chunks += 1
-                
-                # Progress indicator every 10 chunks
-                if (idx + 1) % 10 == 0:
-                    print(f"   ✓ Processed {idx + 1}/{len(chunks)} chunks")
-                    
-            except Exception as e:
-                print(f"   ❌ Error processing chunk {idx}: {e}")
-                continue
-
-        print(f"✅ Completed {filename}: {successful_chunks}/{len(chunks)} chunks embedded")
-
-    # Save updated index and metadata
-    print(f"\n💾 Saving index and metadata...")
-    faiss.write_index(index, FAISS_INDEX_FILE)
-    with open(METADATA_FILE, "wb") as f:
-        pickle.dump(metadata, f)
-
-    print(f"✅ FAISS index updated successfully!")
-    print(f"   Total chunks in index: {len(metadata)}")
-    print(f"   Unique documents: {len(set(m['file'] for m in metadata))}")
-    print(f"   Index saved to: {FAISS_INDEX_FILE}")
-
-
-# ----------------------
-# Test function
-# ----------------------
-if __name__ == "__main__":
-    print("Testing Titan V2 Embedding Model...")
-    print(f"Model ID: {BEDROCK_EMBED_MODEL}")
-    print(f"Region: {AWS_REGION}")
-    
     try:
-        test_text = "This is a test sentence for embedding generation."
-        print(f"\nTest text: '{test_text}'")
-        
-        embedding = get_embedding(test_text)
-        print(f"✅ Embedding generated successfully!")
-        print(f"   Dimension: {embedding.shape[0]}")
-        print(f"   Type: {embedding.dtype}")
-        print(f"   Sample values: {embedding[:5]}")
-        
+        reader = PdfReader(file_path)
+        text = ""
+        for page_num, page in enumerate(reader.pages):
+            page_text = page.extract_text()
+            if page_text:  # Skip empty pages
+                text += f"\n--- Page {page_num + 1} ---\n{page_text}\n"
+        return text.strip()
     except Exception as e:
-        print(f"❌ Test failed: {e}")
-        print("\nTroubleshooting:")
-        print("1. Check if Bedrock is available in your region")
-        print("2. Verify model access: aws bedrock list-foundation-models --region us-west-2")
-        print("3. Ensure IAM permissions for bedrock:InvokeModel")
-        print("4. Confirm model ID: amazon.titan-embed-text-v2:0")
+        print(f"❌ PDF extraction error for {file_path}: {e}")
+        raise
+
+def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]:
+    """
+    Simple overlapping chunking.
+    """
+    if not text:
+        return []
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        chunk = text[start:end]
+        chunks.append(chunk)
+        start = end - overlap
+    return chunks
+
+def build_or_update_index(file_paths: list[str]):
+    """
+    Build/update Chroma index from PDF files.
+    Extracts text → chunks → embeds → adds to collection.
+    """
+    for file_path in file_paths:
+        print(f"Processing {file_path}...")
+        # Extract text
+        full_text = extract_text_from_pdf(file_path)
+        
+        # Chunk
+        chunks = chunk_text(full_text)
+        if not chunks:
+            print(f"No text extracted from {file_path}")
+            continue
+        
+        # Embed chunks
+        embeddings = []
+        for i, chunk in enumerate(chunks):
+            emb = get_embedding(chunk)  # <-- This now works—no string index error
+            embeddings.append(emb)
+        
+        # Metadatas & IDs
+        metadatas = [{"file": os.path.basename(file_path), "chunk_id": i} for i in range(len(chunks))]
+        ids = [f"{os.path.basename(file_path)}_chunk_{i}" for i in range(len(chunks))]
+        
+        # Add to collection (upserts if ID exists)
+        collection.add(
+            documents=chunks,
+            embeddings=embeddings,
+            metadatas=metadatas,
+            ids=ids
+        )
+        print(f"Added {len(chunks)} chunks from {file_path}")
