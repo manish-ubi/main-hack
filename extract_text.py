@@ -33,8 +33,8 @@ def process_new_pdfs():
             print(f"✅ Processed {filename}")
             
             # Clean up local files
-            os.remove(local_pdf)
-            os.remove(local_txt)
+            # os.remove(local_pdf)
+            # os.remove(local_txt)
             
         except Exception as e:
             print(f"Error processing {filename}: {e}")
